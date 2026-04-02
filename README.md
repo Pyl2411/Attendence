@@ -53,6 +53,20 @@ In the GUI:
 - Click `Train Model`.
 - Click `Start Attendance`.
 
+## Streamlit deploy
+
+For Streamlit Cloud, use this repo-relative main file path:
+
+```text
+app.py
+```
+
+Run locally with:
+
+```powershell
+streamlit run app.py
+```
+
 ## Notes
 
 - Press `q` in the camera window to stop.
