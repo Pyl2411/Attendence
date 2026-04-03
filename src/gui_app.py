@@ -5,12 +5,14 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 
+from src.mark_attendance import LABELS_FILE, MODEL_FILE
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SAMPLES = "5"
 ROLES = ["Manager", "Co Founder", "Employee", "Team Leader", "Trainee"]
 DEFAULT_COMPANY_NAME = "Vickhardth Automation"
-DEFAULT_LOGO_PATH = r"C:\Users\om\.cursor\projects\c-Users-om-OneDrive-Desktop-attendence-system\assets\c__Users_om_AppData_Roaming_Cursor_User_workspaceStorage_592a115d05ce72cdf21aca18bd5003d0_images_image-43f9ce4b-e23d-43e3-876a-ebe95efb1495.png"
+DEFAULT_LOGO_PATH = ROOT_DIR / "assets" / "logo.png"
 
 
 class AttendanceGUI:
@@ -27,9 +29,9 @@ class AttendanceGUI:
         self.employee_id_var = tk.StringVar()
         self.role_var = tk.StringVar(value=ROLES[2])
         self.company_var = tk.StringVar(value=DEFAULT_COMPANY_NAME)
-        self.logo_var = tk.StringVar(value=DEFAULT_LOGO_PATH)
 
         self._build_ui()
+        self.root.after(1000, self._auto_start_attendance)
 
     def _build_ui(self):
         top = tk.Frame(self.root, bg="#111827", padx=20, pady=14)
@@ -84,7 +86,7 @@ class AttendanceGUI:
 
         self.capture_btn = tk.Button(
             btns,
-            text="Register & Capture",
+            text="Register & Auto Train",
             command=self.capture_employee,
             bg="#2563eb",
             fg="white",
@@ -95,20 +97,6 @@ class AttendanceGUI:
             pady=8,
         )
         self.capture_btn.pack(side="left", padx=(0, 8))
-
-        self.mark_btn = tk.Button(
-            btns,
-            text="Start Attendance",
-            command=self.start_attendance,
-            bg="#059669",
-            fg="white",
-            activebackground="#047857",
-            activeforeground="white",
-            relief="flat",
-            padx=14,
-            pady=8,
-        )
-        self.mark_btn.pack(side="left")
 
         log_card = tk.Frame(content, bg="#111827", padx=10, pady=10)
         log_card.pack(side="left", fill="both", expand=True)
@@ -129,11 +117,14 @@ class AttendanceGUI:
         )
         self.log_text.pack(fill="both", expand=True)
 
-        self._log("Ready. Fill employee details and click Register & Capture.")
+        self._log("Ready. Fill employee details and click Register & Auto Train.")
+        self._log("Attendance will start automatically when a trained model is available.")
 
     def _render_logo(self, parent):
         try:
-            img = tk.PhotoImage(file=DEFAULT_LOGO_PATH)
+            if not DEFAULT_LOGO_PATH.exists():
+                raise FileNotFoundError(str(DEFAULT_LOGO_PATH))
+            img = tk.PhotoImage(file=str(DEFAULT_LOGO_PATH))
             # Resize for compact header usage (smaller logo).
             max_w = 76
             max_h = 76
@@ -170,7 +161,6 @@ class AttendanceGUI:
         self.is_busy = busy
         state = "disabled" if busy else "normal"
         self.capture_btn.config(state=state)
-        self.mark_btn.config(state=state)
 
     def _log(self, text):
         self.log_text.insert("end", text + "\n")
@@ -212,6 +202,15 @@ class AttendanceGUI:
                     self.root.after(100, on_success)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _auto_start_attendance(self):
+        if self.is_busy:
+            return
+        if not MODEL_FILE.exists() or not LABELS_FILE.exists():
+            self._log("Attendance is waiting for the first trained model.")
+            return
+        self._log("Opening attendance camera automatically.")
+        self.start_attendance()
 
     def capture_employee(self):
         name = self.name_var.get().strip()
@@ -259,11 +258,12 @@ class AttendanceGUI:
             "--samples",
             DEFAULT_SAMPLES,
         ]
-        self._run_command(cmd, "Capture Faces", on_success=self.train_model)
+        self._run_command(cmd, "Capture Faces", on_success=lambda: self.train_model(start_attendance=True))
 
-    def train_model(self):
+    def train_model(self, start_attendance=False):
         cmd = [sys.executable, "src/train_model.py"]
-        self._run_command(cmd, "Train Model")
+        on_success = self.start_attendance if start_attendance else None
+        self._run_command(cmd, "Train Model", on_success=on_success)
 
     def start_attendance(self):
         cmd = [sys.executable, "src/mark_attendance.py"]

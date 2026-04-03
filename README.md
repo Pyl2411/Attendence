@@ -1,6 +1,7 @@
 # Face Recognition Attendance System (Python + OpenCV)
 
 This project records attendance using live face recognition from webcam input.
+The desktop Tkinter GUI is now the primary app.
 
 ## 1) Setup
 
@@ -39,36 +40,24 @@ python src/mark_attendance.py
 
 Attendance is saved in `attendance/attendance_YYYYMMDD.csv`.
 
-## Optional: GUI app (easy for employees)
+## Desktop GUI app
 
-Use a simple desktop app with buttons for capture, train, and attendance:
+Use the Tkinter desktop app for registration and attendance:
 
 ```powershell
 python src/gui_app.py
+# or
+python main.py
 ```
 
 In the GUI:
 - Fill employee name and mobile.
-- Click `Register & Capture Face`.
-- Click `Train Model`.
-- Click `Start Attendance`.
-
-## Streamlit deploy
-
-For Streamlit Cloud, use this repo-relative main file path:
-
-```text
-app.py
-```
-
-Run locally with:
-
-```powershell
-streamlit run app.py
-```
+- Click `Register & Auto Train`.
+- Attendance starts automatically when a trained model exists.
 
 ## Notes
 
 - Press `q` in the camera window to stop.
 - If recognition is weak, increase image samples and retrain.
 - You can tune `CONFIDENCE_THRESHOLD` in `src/mark_attendance.py` (lower is stricter).
+- Location is fetched from the device/network on the desktop app, so it is more accurate than the old Streamlit cloud location.
