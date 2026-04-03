@@ -13,6 +13,12 @@ MODEL_FILE = MODELS_DIR / "face_trainer.yml"
 LABELS_FILE = MODELS_DIR / "labels.json"
 CONFIDENCE_THRESHOLD = 55
 MIN_WORK_HOURS = 9
+LOCATION_APIS = [
+    "https://ipinfo.io/json",
+    "https://ipapi.co/json/",
+    "https://ipwho.is/",
+    "https://ip-api.com/json/?fields=status,message,city,regionName,country,lat,lon",
+]
 ATTENDANCE_COLUMNS = [
     "Name",
     "Date",
@@ -50,19 +56,28 @@ def ensure_today_file(file_path):
 
 
 def get_current_location():
-    try:
-        response = requests.get("http://ip-api.com/json/", timeout=3)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("status") != "success":
-            return "Unknown", "", ""
-        city = data.get("city", "")
-        region = data.get("regionName", "")
-        country = data.get("country", "")
-        location = ", ".join([p for p in [city, region, country] if p]).strip()
-        return location or "Unknown", str(data.get("lat", "")), str(data.get("lon", ""))
-    except Exception:
-        return "Unknown", "", ""
+    for api_url in LOCATION_APIS:
+        try:
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+
+            if api_url.endswith("ipwho.is/") and not data.get("success", False):
+                continue
+            if api_url.endswith("ip-api.com/json/?fields=status,message,city,regionName,country,lat,lon") and data.get("status") != "success":
+                continue
+
+            city = data.get("city", "") or data.get("town", "")
+            region = data.get("region", "") or data.get("regionName", "")
+            country = data.get("country", "")
+            location = ", ".join([p for p in [city, region, country] if p]).strip()
+
+            lat = data.get("latitude", data.get("lat", ""))
+            lon = data.get("longitude", data.get("lon", ""))
+            return location or "Unknown", str(lat or ""), str(lon or "")
+        except Exception:
+            continue
+    return "Unknown", "", ""
 
 
 def read_rows(file_path):

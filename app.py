@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from src.train_model import MODELS_DIR, DATA_DIR, preprocess_face
 FACE_CASCADE = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
+ATTENDANCE_SNAPSHOT_DIR = Path("attendance_snapshots")
 
 
 def get_training_assets():
@@ -46,6 +48,13 @@ def decode_image(uploaded_file) -> np.ndarray | None:
     return image
 
 
+def uploaded_file_hash(uploaded_file) -> str | None:
+    if uploaded_file is None:
+        return None
+    file_bytes = uploaded_file.getvalue()
+    return hashlib.sha256(file_bytes).hexdigest()
+
+
 def extract_face(image: np.ndarray) -> np.ndarray | None:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
@@ -63,6 +72,35 @@ def save_face_sample(person_folder: Path, face_image: np.ndarray) -> Path:
     file_path = person_folder / file_name
     cv2.imwrite(str(file_path), face_image)
     return file_path
+
+
+def save_attendance_snapshot(image: np.ndarray, name: str, action: str) -> Path:
+    ATTENDANCE_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    safe_name = sanitize_name(name)
+    file_path = ATTENDANCE_SNAPSHOT_DIR / f"{safe_name}_{action}_{stamp}.jpg"
+    cv2.imwrite(str(file_path), image)
+    return file_path
+
+
+def train_model_from_data(min_images_per_person: int = 1):
+    from src.train_model import load_training_data
+
+    images, labels, label_map = load_training_data(
+        min_images_per_person=min_images_per_person
+    )
+    if not images:
+        raise RuntimeError("No training images found in `data/`.")
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer.train(images, labels)
+    recognizer.save(str(MODEL_FILE))
+
+    with LABELS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(label_map, f, indent=2)
+
+    return len(images), len(label_map)
 
 
 def load_employee_count() -> int:
@@ -89,7 +127,9 @@ def load_recent_attendance(limit: int = 10):
 
 def registration_section():
     st.subheader("Register employee")
-    st.write("Capture a browser photo, save face samples, and register the employee record.")
+    st.write(
+        "Capture a browser photo once. The face sample will be saved and the model will retrain automatically."
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -101,13 +141,16 @@ def registration_section():
         company_name = st.text_input("Company name", value="Vickhardth Automation")
 
     photo = st.camera_input("Capture face photo")
-    submitted = st.button("Register and save sample")
-
-    if not submitted:
+    if photo is None:
         return
 
     if not name.strip() or not mobile.strip() or not employee_id.strip():
-        st.error("Name, mobile, and employee ID are required.")
+        st.info("Fill in the employee details first, then capture a face photo.")
+        return
+
+    photo_hash = uploaded_file_hash(photo)
+    process_key = f"registration_done_{photo_hash}_{sanitize_name(name)}_{sanitize_mobile(mobile)}_{employee_id.strip().lower()}"
+    if st.session_state.get(process_key):
         return
 
     image = decode_image(photo)
@@ -133,73 +176,74 @@ def registration_section():
 
     saved_path = save_face_sample(person_dir, face)
     append_capture_log(name.strip(), clean_mobile, folder_name, 1)
+    st.session_state[process_key] = True
 
-    st.success(f"Saved face sample to {saved_path}")
-    st.info("Capture multiple samples by repeating this step before training.")
-
-
-def training_section():
-    st.subheader("Train model")
-    st.write("This builds the face recognizer from images stored in `data/`.")
-
-    if st.button("Train model"):
-        try:
-            from src.train_model import load_training_data
-
-            images, labels, label_map = load_training_data()
-            if not images:
-                st.error("No training images found in `data/`.")
-                return
-
-            MODELS_DIR.mkdir(parents=True, exist_ok=True)
-            recognizer = cv2.face.LBPHFaceRecognizer_create()
-            recognizer.train(images, labels)
-            recognizer.save(str(MODEL_FILE))
-
-            with LABELS_FILE.open("w", encoding="utf-8") as f:
-                json.dump(label_map, f, indent=2)
-
-            st.success(f"Model saved to {MODEL_FILE}")
-            st.success(f"Labels saved to {LABELS_FILE}")
-        except Exception as exc:
-            st.error(f"Training failed: {exc}")
+    try:
+        total_images, total_labels = train_model_from_data(min_images_per_person=1)
+        st.success(f"Saved face sample to {saved_path}")
+        st.success(
+            f"Model auto-trained with {total_images} images across {total_labels} employee label(s)."
+        )
+        st.info("You can capture another sample for better accuracy.")
+    except Exception as exc:
+        st.success(f"Saved face sample to {saved_path}")
+        st.warning(f"Sample saved, but auto-training could not complete yet: {exc}")
 
 
 def attendance_section():
     st.subheader("Mark attendance from photo")
-    st.write("Upload a face photo or use the browser camera to mark IN/OUT.")
+    st.write(
+        "Capture a face photo and the app will recognize the person, save the snapshot, and mark IN/OUT automatically."
+    )
 
     uploaded = st.camera_input("Capture attendance photo")
-    if st.button("Recognize and mark attendance"):
-        try:
-            recognizer, labels = get_training_assets()
-        except Exception as exc:
-            st.error(str(exc))
-            return
+    if uploaded is None:
+        return
 
-        image = decode_image(uploaded)
-        if image is None:
-            st.error("Please capture a photo first.")
-            return
+    photo_hash = uploaded_file_hash(uploaded)
+    process_key = f"attendance_done_{photo_hash}"
+    if st.session_state.get(process_key):
+        return
 
-        face = extract_face(image)
-        if face is None:
-            st.error("No face detected in the captured photo.")
-            return
+    try:
+        recognizer, labels = get_training_assets()
+    except Exception as exc:
+        st.error(str(exc))
+        return
 
-        label_id, confidence = recognizer.predict(face)
-        if confidence >= CONFIDENCE_THRESHOLD:
-            st.error(f"Face not recognized. Confidence: {confidence:.1f}")
-            return
+    image = decode_image(uploaded)
+    if image is None:
+        st.error("Please capture a photo first.")
+        return
 
-        name = labels.get(label_id, "unknown")
-        today_file = ATTENDANCE_DIR / f"attendance_{datetime.now().strftime('%Y%m%d')}.csv"
-        ensure_today_file(today_file)
-        message, ok = mark_attendance(name, today_file)
-        if ok:
-            st.success(message)
-        else:
-            st.warning(message)
+    face = extract_face(image)
+    if face is None:
+        st.error("No face detected in the captured photo.")
+        return
+
+    label_id, confidence = recognizer.predict(face)
+    if confidence >= CONFIDENCE_THRESHOLD:
+        st.error(f"Face not recognized. Confidence: {confidence:.1f}")
+        return
+
+    name = labels.get(label_id, "unknown")
+    today_file = ATTENDANCE_DIR / f"attendance_{datetime.now().strftime('%Y%m%d')}.csv"
+    ensure_today_file(today_file)
+    message, ok = mark_attendance(name, today_file)
+    action = "in"
+    upper_message = message.upper()
+    if ": OUT " in upper_message or upper_message.startswith(f"{name.upper()}: OUT"):
+        action = "out"
+
+    snapshot_path = save_attendance_snapshot(image, name, action)
+    st.session_state[process_key] = True
+
+    if ok:
+        st.success(message)
+        st.info(f"Attendance snapshot saved to {snapshot_path}")
+    else:
+        st.warning(message)
+        st.info(f"Attendance snapshot saved to {snapshot_path}")
 
 
 def attendance_table_section():
@@ -215,24 +259,18 @@ def main():
     st.set_page_config(page_title="Vickhardth Attendance", page_icon="VA", layout="wide")
 
     st.title("Vickhardth Attendance")
-    st.caption("Streamlit control panel for registration, training, and attendance.")
+    st.caption("Streamlit control panel for registration and attendance.")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Employees", load_employee_count())
     col2.metric("Training data", len(list(DATA_DIR.glob("*/*.jpg"))) if DATA_DIR.exists() else 0)
     col3.metric("Model ready", "Yes" if MODEL_FILE.exists() and LABELS_FILE.exists() else "No")
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Register", "Train", "Attendance", "Records"]
-    )
-    with tab1:
-        registration_section()
-    with tab2:
-        training_section()
-    with tab3:
-        attendance_section()
-    with tab4:
-        attendance_table_section()
+    attendance_section()
+    st.divider()
+    registration_section()
+    st.divider()
+    attendance_table_section()
 
 
 if __name__ == "__main__":

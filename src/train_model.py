@@ -39,7 +39,7 @@ def label_display_name(folder_name, employee_lookup):
     return employee_lookup.get(possible_mobile, folder_name)
 
 
-def load_training_data():
+def load_training_data(min_images_per_person=MIN_IMAGES_PER_PERSON):
     images = []
     labels = []
     label_map = {}
@@ -60,10 +60,10 @@ def load_training_data():
                 continue
             person_images.append(preprocess_face(img))
 
-        if len(person_images) < MIN_IMAGES_PER_PERSON:
+        if len(person_images) < min_images_per_person:
             print(
                 f"Skipping '{person_dir.name}': only {len(person_images)} images "
-                f"(need at least {MIN_IMAGES_PER_PERSON})."
+                f"(need at least {min_images_per_person})."
             )
             continue
 
