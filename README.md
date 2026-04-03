@@ -45,9 +45,7 @@ Attendance is saved in `attendance/attendance_YYYYMMDD.csv`.
 Use the Tkinter desktop app for registration and attendance:
 
 ```powershell
-python src/gui_app.py
-# or
-python main.py
+python desktop_main.py
 ```
 
 In the GUI:
@@ -57,7 +55,7 @@ In the GUI:
 
 ## Streamlit Cloud
 
-Use `main.py` as the entrypoint in Streamlit Cloud. It routes to the Streamlit app in cloud mode and to the Tkinter GUI when run locally with Python.
+Use `main.py` or `app.py` as the entrypoint in Streamlit Cloud.
 
 ## Notes
 
