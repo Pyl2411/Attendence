@@ -55,6 +55,10 @@ In the GUI:
 - Click `Register & Auto Train`.
 - Attendance starts automatically when a trained model exists.
 
+## Streamlit Cloud
+
+Use `main.py` as the entrypoint in Streamlit Cloud. It routes to the Streamlit app in cloud mode and to the Tkinter GUI when run locally with Python.
+
 ## Notes
 
 - Press `q` in the camera window to stop.
